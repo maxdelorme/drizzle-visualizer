@@ -4,6 +4,7 @@ import { SchemaTable } from "@/pages/Editor";
 // Enhanced parser to extract schema information from Drizzle code
 export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
   const tables: SchemaTable[] = [];
+  const drizzleToSqlTableName = new Map<string, string>();
 
   // Improved regex patterns to match different parts of Drizzle schema
   const tableRegex =
@@ -25,6 +26,17 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
     targetTable: string;
     targetColumn: string;
   }[] = [];
+
+  // Build a global map from Drizzle variable name -> SQL table name.
+  files.forEach((file) => {
+    tableRegex.lastIndex = 0;
+    let tableMatch: any[];
+    while ((tableMatch = tableRegex.exec(file.content)) !== null) {
+      const variableName = tableMatch[1];
+      const tableName = tableMatch[3] || variableName;
+      drizzleToSqlTableName.set(variableName, tableName);
+    }
+  });
 
   // First pass: extract all tables and their columns
   files.forEach((file) => {
@@ -91,16 +103,21 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
         // Check if this is a foreign key
         const referenceMatch = referencesRegex.exec(columnModifiers);
         const isForeign = !!referenceMatch;
+        const resolvedTargetTable =
+          isForeign && referenceMatch
+            ? (drizzleToSqlTableName.get(referenceMatch[1]) ??
+              referenceMatch[1])
+            : undefined;
         if (isForeign && referenceMatch) {
           // Store the relation for post-processing
           relations.push({
             sourceTable: tableName,
             sourceColumn: columnName,
-            targetTable: referenceMatch[1],
+            targetTable: resolvedTargetTable!,
             targetColumn: referenceMatch[2] || "id", // Default to 'id' if not specified
           });
           console.log(
-            `Found relation: ${tableName}.${columnName} -> ${referenceMatch[1]}.${referenceMatch[2]}`,
+            `Found relation: ${tableName}.${columnName} -> ${resolvedTargetTable}.${referenceMatch[2]}`,
           );
         }
 
@@ -110,7 +127,7 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
           type: columnType,
           isPrimary,
           isForeign,
-          references: isForeign ? referenceMatch![1] : undefined,
+          references: resolvedTargetTable,
         });
       });
 
