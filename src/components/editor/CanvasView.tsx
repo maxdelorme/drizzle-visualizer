@@ -7,6 +7,90 @@ interface CanvasViewProps {
   onCanvasStateChange: (newState: AppState['canvasState']) => void;
 }
 
+const TABLE_WIDTH = 240;
+const TABLE_HEADER_HEIGHT = 40;
+const TABLE_ROW_HEIGHT = 34;
+const TABLE_ROW_GAP = 90;
+const TABLE_COLUMN_GAP = 140;
+const CANVAS_MARGIN = 50;
+const LANDSCAPE_ASPECT_RATIO = 1.7;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.0;
+const ZOOM_STEP = 0.1;
+
+const getTableHeight = (table: SchemaTable) =>
+  TABLE_HEADER_HEIGHT + table.columns.length * TABLE_ROW_HEIGHT;
+
+const getColumnY = (tableTop: number, columnIndex: number) =>
+  tableTop +
+  TABLE_HEADER_HEIGHT +
+  (columnIndex > -1 ? columnIndex * TABLE_ROW_HEIGHT + TABLE_ROW_HEIGHT / 2 : 0);
+
+const buildRelationLayout = (tables: SchemaTable[]) => {
+  const tableByName = new Map(tables.map((table) => [table.name, table]));
+  const tableNames = tables.map((table) => table.name);
+  const inDegree = new Map<string, number>(tableNames.map((name) => [name, 0]));
+  const outgoing = new Map<string, Set<string>>(
+    tableNames.map((name) => [name, new Set<string>()]),
+  );
+
+  tables.forEach((table) => {
+    table.columns.forEach((column) => {
+      if (!column.isForeign || !column.references) return;
+      if (!tableByName.has(column.references) || column.references === table.name) {
+        return;
+      }
+
+      const neighbors = outgoing.get(table.name);
+      if (!neighbors || neighbors.has(column.references)) return;
+
+      neighbors.add(column.references);
+      inDegree.set(column.references, (inDegree.get(column.references) ?? 0) + 1);
+    });
+  });
+
+  const levelByTable = new Map<string, number>();
+  const queue: string[] = tableNames.filter((name) => (inDegree.get(name) ?? 0) === 0);
+
+  queue.forEach((name) => levelByTable.set(name, 0));
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const currentLevel = levelByTable.get(current) ?? 0;
+    const neighbors = outgoing.get(current) ?? new Set<string>();
+
+    neighbors.forEach((next) => {
+      const nextLevel = Math.max(levelByTable.get(next) ?? 0, currentLevel + 1);
+      levelByTable.set(next, nextLevel);
+
+      inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
+      if ((inDegree.get(next) ?? 0) === 0) {
+        queue.push(next);
+      }
+    });
+  }
+
+  // Fallback for cycles/unvisited nodes: place them after known levels.
+  const maxKnownLevel = Math.max(...Array.from(levelByTable.values(), (v) => v), 0);
+  tableNames.forEach((name, index) => {
+    if (!levelByTable.has(name)) {
+      levelByTable.set(name, maxKnownLevel + 1 + index);
+    }
+  });
+
+  // Keep dependency order, then spread in a landscape grid in the caller.
+  return [...tables].sort((a, b) => {
+    const levelDiff = (levelByTable.get(a.name) ?? 0) - (levelByTable.get(b.name) ?? 0);
+    if (levelDiff !== 0) return levelDiff;
+
+    const outDiff =
+      (outgoing.get(b.name)?.size ?? 0) - (outgoing.get(a.name)?.size ?? 0);
+    if (outDiff !== 0) return outDiff;
+
+    return a.name.localeCompare(b.name);
+  });
+};
+
 const CanvasView: React.FC<CanvasViewProps> = ({
   tables,
   canvasState,
@@ -19,23 +103,38 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     Record<string, { x: number; y: number }>
   >({});
 
-  // Initialize table positions in a grid layout when tables change
+  // Initialize table positions with a landscape-oriented grid.
   useEffect(() => {
     if (tables.length === 0) return;
 
     const newPositions: Record<string, { x: number; y: number }> = {};
-    const tableWidth = 240;
-    const tableHeight = 180;
-    const padding = 50;
-    const columns = Math.ceil(Math.sqrt(tables.length));
+    const orderedTables = buildRelationLayout(tables);
+    const totalTables = orderedTables.length;
+    const columns = Math.max(
+      2,
+      Math.ceil(Math.sqrt(totalTables * LANDSCAPE_ASPECT_RATIO)),
+    );
+    const rows = Math.ceil(totalTables / columns);
+    const rowHeights = Array.from({ length: rows }, () => 0);
 
-    tables.forEach((table, index) => {
+    orderedTables.forEach((table, index) => {
+      const row = Math.floor(index / columns);
+      rowHeights[row] = Math.max(rowHeights[row], getTableHeight(table));
+    });
+
+    const rowOffsets = Array.from({ length: rows }, () => 0);
+    let nextRowY = CANVAS_MARGIN;
+    rowHeights.forEach((height, row) => {
+      rowOffsets[row] = nextRowY;
+      nextRowY += height + TABLE_ROW_GAP;
+    });
+
+    orderedTables.forEach((table, index) => {
       const col = index % columns;
       const row = Math.floor(index / columns);
-
       newPositions[table.name] = {
-        x: col * (tableWidth + padding) + 50,
-        y: row * (tableHeight + padding) + 50,
+        x: CANVAS_MARGIN + col * (TABLE_WIDTH + TABLE_COLUMN_GAP),
+        y: rowOffsets[row],
       };
     });
 
@@ -66,6 +165,39 @@ const CanvasView: React.FC<CanvasViewProps> = ({
 
   const handleMouseUp = () => {
     setIsDragging(false);
+  };
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
+
+    const rect = canvasElement.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+
+    const zoomDirection = event.deltaY < 0 ? 1 : -1;
+    const nextZoom = Math.min(
+      ZOOM_MAX,
+      Math.max(ZOOM_MIN, canvasState.zoom + zoomDirection * ZOOM_STEP),
+    );
+
+    if (nextZoom === canvasState.zoom) return;
+
+    // Keep the world point under cursor stable while zooming.
+    const worldX = (pointerX - canvasState.position.x) / canvasState.zoom;
+    const worldY = (pointerY - canvasState.position.y) / canvasState.zoom;
+    const nextPosition = {
+      x: pointerX - worldX * nextZoom,
+      y: pointerY - worldY * nextZoom,
+    };
+
+    onCanvasStateChange({
+      ...canvasState,
+      zoom: nextZoom,
+      position: nextPosition,
+    });
   };
 
   const handleTableDragStart = (event: React.MouseEvent, tableName: string) => {
@@ -132,47 +264,73 @@ const CanvasView: React.FC<CanvasViewProps> = ({
         (c) => c.name === relation.to.column,
       );
 
-      // Calculate connection points
-      const fromX = fromPos.x + 240; // right side of table
-      const fromY =
-        fromPos.y + 50 + (fromColumnIndex > -1 ? fromColumnIndex * 30 : 0);
-      const toX = toPos.x; // left side of table
-      const toY = toPos.y + 50 + (toColumnIndex > -1 ? toColumnIndex * 30 : 0);
+      const fromY = getColumnY(fromPos.y, fromColumnIndex);
+      const toY = getColumnY(toPos.y, toColumnIndex);
+
+      const anchorCandidates = [
+        { fromX: fromPos.x, toX: toPos.x, key: 'left-left' },
+        { fromX: fromPos.x, toX: toPos.x + TABLE_WIDTH, key: 'left-right' },
+        { fromX: fromPos.x + TABLE_WIDTH, toX: toPos.x, key: 'right-left' },
+        {
+          fromX: fromPos.x + TABLE_WIDTH,
+          toX: toPos.x + TABLE_WIDTH,
+          key: 'right-right',
+        },
+      ];
+
+      const tablesOverlapHorizontally =
+        fromPos.x < toPos.x + TABLE_WIDTH && toPos.x < fromPos.x + TABLE_WIDTH;
+
+      type AnchorCandidate = (typeof anchorCandidates)[number];
+      type ScoredAnchor = AnchorCandidate & { score: number };
+
+      const bestAnchor = anchorCandidates.reduce<ScoredAnchor | null>(
+        (best, candidate) => {
+        const horizontalDistance = Math.abs(candidate.toX - candidate.fromX);
+        const verticalDistance = Math.abs(toY - fromY);
+        const sameSide =
+          candidate.key === 'left-left' || candidate.key === 'right-right';
+
+        // Prefer shorter paths; when tables overlap horizontally, same-side
+        // anchors often keep arrows outside and reduce hidden segments.
+        const overlapPenalty =
+          tablesOverlapHorizontally && !sameSide ? TABLE_WIDTH * 0.75 : 0;
+        const score = horizontalDistance + verticalDistance * 0.6 + overlapPenalty;
+
+          if (!best || score < best.score) {
+          return { ...candidate, score };
+          }
+          return best;
+        },
+        null,
+      );
+
+      if (!bestAnchor) return null;
+
+      const fromX = bestAnchor.fromX;
+      const toX = bestAnchor.toX;
 
       // Draw a path for the relation
-      const path = `M ${fromX} ${fromY} C ${fromX + 50} ${fromY}, ${
-        toX - 50
-      } ${toY}, ${toX} ${toY}`;
+      const fromSide = fromX === fromPos.x ? 'left' : 'right';
+      const toSide = toX === toPos.x ? 'left' : 'right';
+      const horizontalDistance = Math.abs(toX - fromX);
+      const curveStrength = Math.max(45, horizontalDistance * 0.35);
+      const fromDirection = fromSide === 'left' ? -1 : 1;
+      const toDirection = toSide === 'left' ? -1 : 1;
+
+      const path = `M ${fromX} ${fromY} C ${
+        fromX + fromDirection * curveStrength
+      } ${fromY}, ${toX + toDirection * curveStrength} ${toY}, ${toX} ${toY}`;
 
       return (
-        <svg
+        <path
           key={index}
-          className="absolute top-0 left-0 w-full h-full pointer-events-none"
-          style={{
-            transform: `translate(${canvasState.position.x}px, ${canvasState.position.y}px)`,
-          }}
-        >
-          <path
-            d={path}
-            stroke="#7c3aed"
-            strokeWidth="1.5"
-            fill="none"
-            markerEnd="url(#arrowhead)"
-          />
-          {/* Arrow marker definition */}
-          <defs>
-            <marker
-              id="arrowhead"
-              markerWidth="10"
-              markerHeight="7"
-              refX="9"
-              refY="3.5"
-              orient="auto"
-            >
-              <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed" />
-            </marker>
-          </defs>
-        </svg>
+          d={path}
+          stroke="#7c3aed"
+          strokeWidth="1.8"
+          fill="none"
+          markerEnd="url(#arrowhead)"
+        />
       );
     });
   };
@@ -188,22 +346,38 @@ const CanvasView: React.FC<CanvasViewProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
         style={{
           touchAction: 'none',
         }}
       >
-        {drawRelations()}
-
         <div
           className="transform-gpu transition-transform duration-100"
           style={{
             transform: `translate(${canvasState.position.x}px, ${canvasState.position.y}px) ${zoomTransform}`,
+            transformOrigin: 'top left',
           }}
         >
+          <svg className="absolute top-0 left-0 w-[8000px] h-[8000px] pointer-events-none z-0 overflow-visible">
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth="10"
+                markerHeight="7"
+                refX="9"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed" />
+              </marker>
+            </defs>
+            {drawRelations()}
+          </svg>
+
           {tables.map((table) => (
             <div
               key={table.name}
-              className="absolute bg-white rounded-md shadow-md border w-60 overflow-hidden"
+              className="absolute bg-white rounded-md shadow-md border w-60 overflow-hidden z-10"
               style={{
                 left: tablePositions[table.name]?.x || 0,
                 top: tablePositions[table.name]?.y || 0,
