@@ -1,4 +1,5 @@
 import React from 'react';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
 interface EditorLayoutProps {
   sidebar: React.ReactNode;
@@ -14,8 +15,8 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
   controls,
 }) => {
   return (
-    <div className="h-screen w-full flex flex-col">
-      <div className="w-full h-14 border-b bg-background flex items-center px-4">
+    <div className="h-dvh w-full flex flex-col overflow-hidden">
+      <div className="w-full h-14 shrink-0 border-b bg-background flex items-center px-4">
         <a href="/" className="flex items-center gap-2">
           <span className="font-semibold text-primary">
             Drizzle Schema Vision
@@ -23,23 +24,27 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
         </a>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-64 border-r bg-background flex flex-col">
+      <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">
+        <div className="w-64 shrink-0 border-r bg-background flex flex-col min-h-0">
           {sidebar}
         </div>
 
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* Code Editor */}
-          <div className="md:w-1/2 h-full md:h-full bg-editor-bg text-editor-text overflow-hidden flex flex-col border-r">
+        <PanelGroup direction="horizontal" className="flex-1 min-w-0 min-h-0">
+          <Panel
+            defaultSize={45}
+            minSize={25}
+            className="min-w-0 min-h-0 bg-editor-bg text-editor-text overflow-hidden flex flex-col border-r"
+          >
             {editor}
-          </div>
+          </Panel>
 
-          {/* Visualization Canvas */}
-          <div className="md:w-1/2 h-full md:h-full relative">
+          <PanelResizeHandle className="w-1 bg-border hover:bg-primary/40 transition-colors" />
+
+          <Panel defaultSize={55} minSize={25} className="min-w-0 min-h-0 relative">
             <div className="h-full w-full overflow-hidden">{canvas}</div>
             <div className="absolute bottom-4 left-4 z-10">{controls}</div>
-          </div>
-        </div>
+          </Panel>
+        </PanelGroup>
       </div>
     </div>
   );
