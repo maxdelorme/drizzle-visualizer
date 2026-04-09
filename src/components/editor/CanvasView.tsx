@@ -145,6 +145,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
   const [tablePositions, setTablePositions] = useState<
     Record<string, { x: number; y: number }>
   >(persistedTablePositions);
+  const canvasStateRef = useRef(canvasState);
 
   // Keep table positions on auto-refresh; relayout only when requested.
   useEffect(() => {
@@ -184,6 +185,10 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     persistedLayoutVersion = Math.max(persistedLayoutVersion, layoutVersion);
   }, [layoutVersion]);
 
+  useEffect(() => {
+    canvasStateRef.current = canvasState;
+  }, [canvasState]);
+
   const handleMouseDown = (event: React.MouseEvent) => {
     if (event.target === canvasRef.current) {
       setIsDragging(true);
@@ -210,38 +215,48 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     setIsDragging(false);
   };
 
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-
+  useEffect(() => {
     const canvasElement = canvasRef.current;
     if (!canvasElement) return;
 
-    const rect = canvasElement.getBoundingClientRect();
-    const pointerX = event.clientX - rect.left;
-    const pointerY = event.clientY - rect.top;
+    const handleWheelEvent = (event: WheelEvent) => {
+      event.preventDefault();
 
-    const zoomDirection = event.deltaY < 0 ? 1 : -1;
-    const nextZoom = Math.min(
-      ZOOM_MAX,
-      Math.max(ZOOM_MIN, canvasState.zoom + zoomDirection * ZOOM_STEP),
-    );
+      const currentCanvasState = canvasStateRef.current;
+      const rect = canvasElement.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
 
-    if (nextZoom === canvasState.zoom) return;
+      const zoomDirection = event.deltaY < 0 ? 1 : -1;
+      const nextZoom = Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, currentCanvasState.zoom + zoomDirection * ZOOM_STEP),
+      );
 
-    // Keep the world point under cursor stable while zooming.
-    const worldX = (pointerX - canvasState.position.x) / canvasState.zoom;
-    const worldY = (pointerY - canvasState.position.y) / canvasState.zoom;
-    const nextPosition = {
-      x: pointerX - worldX * nextZoom,
-      y: pointerY - worldY * nextZoom,
+      if (nextZoom === currentCanvasState.zoom) return;
+
+      // Keep the world point under cursor stable while zooming.
+      const worldX =
+        (pointerX - currentCanvasState.position.x) / currentCanvasState.zoom;
+      const worldY =
+        (pointerY - currentCanvasState.position.y) / currentCanvasState.zoom;
+      const nextPosition = {
+        x: pointerX - worldX * nextZoom,
+        y: pointerY - worldY * nextZoom,
+      };
+
+      onCanvasStateChange({
+        ...currentCanvasState,
+        zoom: nextZoom,
+        position: nextPosition,
+      });
     };
 
-    onCanvasStateChange({
-      ...canvasState,
-      zoom: nextZoom,
-      position: nextPosition,
-    });
-  };
+    canvasElement.addEventListener('wheel', handleWheelEvent, { passive: false });
+    return () => {
+      canvasElement.removeEventListener('wheel', handleWheelEvent);
+    };
+  }, [onCanvasStateChange]);
 
   const handleTableDragStart = (event: React.MouseEvent, tableName: string) => {
     event.preventDefault();
@@ -394,7 +409,6 @@ const CanvasView: React.FC<CanvasViewProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         style={{
           touchAction: 'none',
         }}
