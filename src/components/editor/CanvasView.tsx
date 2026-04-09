@@ -8,6 +8,9 @@ interface CanvasViewProps {
   onCanvasStateChange: (newState: AppState['canvasState']) => void;
 }
 
+let persistedTablePositions: Record<string, { x: number; y: number }> = {};
+let persistedLayoutVersion = 0;
+
 const TABLE_WIDTH = 240;
 const TABLE_HEADER_HEIGHT = 40;
 const TABLE_ROW_HEIGHT = 34;
@@ -15,7 +18,7 @@ const TABLE_ROW_GAP = 90;
 const TABLE_COLUMN_GAP = 140;
 const CANVAS_MARGIN = 50;
 const LANDSCAPE_ASPECT_RATIO = 1.7;
-const ZOOM_MIN = 0.5;
+const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 2.0;
 const ZOOM_STEP = 0.1;
 
@@ -134,12 +137,14 @@ const CanvasView: React.FC<CanvasViewProps> = ({
   onCanvasStateChange,
 }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const lastAppliedLayoutVersionRef = useRef(layoutVersion);
+  const lastAppliedLayoutVersionRef = useRef(
+    Math.max(layoutVersion, persistedLayoutVersion),
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [tablePositions, setTablePositions] = useState<
     Record<string, { x: number; y: number }>
-  >({});
+  >(persistedTablePositions);
 
   // Keep table positions on auto-refresh; relayout only when requested.
   useEffect(() => {
@@ -170,6 +175,14 @@ const CanvasView: React.FC<CanvasViewProps> = ({
       return nextPositions;
     });
   }, [tables, layoutVersion]);
+
+  useEffect(() => {
+    persistedTablePositions = tablePositions;
+  }, [tablePositions]);
+
+  useEffect(() => {
+    persistedLayoutVersion = Math.max(persistedLayoutVersion, layoutVersion);
+  }, [layoutVersion]);
 
   const handleMouseDown = (event: React.MouseEvent) => {
     if (event.target === canvasRef.current) {
@@ -231,12 +244,16 @@ const CanvasView: React.FC<CanvasViewProps> = ({
   };
 
   const handleTableDragStart = (event: React.MouseEvent, tableName: string) => {
+    event.preventDefault();
     event.stopPropagation();
     const { clientX, clientY } = event;
     const { x, y } = tablePositions[tableName];
+    const originalUserSelect = document.body.style.userSelect;
 
     const startX = clientX - x;
     const startY = clientY - y;
+
+    document.body.style.userSelect = 'none';
 
     const handleTableDragMove = (moveEvent: MouseEvent) => {
       const newX = moveEvent.clientX - startX;
@@ -251,6 +268,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     const handleTableDragEnd = () => {
       document.removeEventListener('mousemove', handleTableDragMove);
       document.removeEventListener('mouseup', handleTableDragEnd);
+      document.body.style.userSelect = originalUserSelect;
     };
 
     document.addEventListener('mousemove', handleTableDragMove);

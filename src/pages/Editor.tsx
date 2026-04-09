@@ -9,7 +9,7 @@ import CanvasControls from '@/components/editor/CanvasControls';
 import { toast } from 'sonner';
 import { parseSchemaFromCode } from '@/lib/schemaParser';
 import { Button } from '@/components/ui/button';
-import { Database, Save } from 'lucide-react';
+import { Database, Link2, RefreshCw, Save } from 'lucide-react';
 
 export interface AppFile {
   name: string;
@@ -42,11 +42,16 @@ const Editor = () => {
   const [tables, setTables] = useState<SchemaTable[]>([]);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [showVisualizer, setShowVisualizer] = useState(true);
+  const [canvasOnly, setCanvasOnly] = useState(false);
+  const [linkedFileName, setLinkedFileName] = useState<string | null>(null);
+  const [autoReloadEnabled, setAutoReloadEnabled] = useState(false);
   const [lastSavedContents, setLastSavedContents] = useState<
     Record<string, string>
   >({});
   const autoVisualizeTimeoutRef = useRef<number | null>(null);
   const fileHandlesRef = useRef<Record<string, any>>({});
+  const linkedFileHandleRef = useRef<any | null>(null);
+  const lastLinkedFileContentRef = useRef<string>('');
 
   useEffect(() => {
     const stateParam = searchParams.get('state');
@@ -75,6 +80,16 @@ const Editor = () => {
     if (!appState) return false;
     return appState.files.some((file) => lastSavedContents[file.name] !== file.content);
   }, [appState, lastSavedContents]);
+  const hasFileSystemApi = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof (
+        window as Window & {
+          showOpenFilePicker?: unknown;
+        }
+      ).showOpenFilePicker === 'function',
+    [],
+  );
 
   // Visualize schema when actively triggered by user
   const handleVisualize = () => {
@@ -148,6 +163,9 @@ const Editor = () => {
         ...prev,
         [activeFile.name]: activeFile.content,
       }));
+      if (linkedFileName === activeFile.name) {
+        lastLinkedFileContentRef.current = activeFile.content;
+      }
 
       toast('File saved', {
         description: `${activeFile.name} was saved successfully.`,
@@ -156,6 +174,71 @@ const Editor = () => {
       console.error('Failed to save file:', error);
       toast('Save canceled or failed', {
         description: 'No file was saved.',
+      });
+    }
+  };
+
+  const upsertFileInState = (fileName: string, content: string) => {
+    setAppState((prevState) => {
+      if (!prevState) return prevState;
+
+      const existingIndex = prevState.files.findIndex((file) => file.name === fileName);
+      if (existingIndex > -1) {
+        const nextFiles = [...prevState.files];
+        nextFiles[existingIndex] = { ...nextFiles[existingIndex], content };
+        return { ...prevState, files: nextFiles, activeFile: fileName };
+      }
+
+      return {
+        ...prevState,
+        files: [...prevState.files, { name: fileName, content }],
+        activeFile: fileName,
+      };
+    });
+  };
+
+  const handleLinkSchemaFile = async () => {
+    try {
+      const windowWithFS = window as Window & {
+        showOpenFilePicker?: (options?: Record<string, unknown>) => Promise<any[]>;
+      };
+
+      if (!windowWithFS.showOpenFilePicker) {
+        toast('File linking not supported', {
+          description: 'Your browser does not support the File System Access API.',
+        });
+        return;
+      }
+
+      const [fileHandle] = await windowWithFS.showOpenFilePicker({
+        multiple: false,
+        types: [
+          {
+            description: 'Schema files',
+            accept: { 'text/plain': ['.ts', '.tsx', '.js', '.jsx'] },
+          },
+        ],
+      });
+      if (!fileHandle) return;
+
+      const file = await fileHandle.getFile();
+      const content = await file.text();
+
+      linkedFileHandleRef.current = fileHandle;
+      lastLinkedFileContentRef.current = content;
+      setLinkedFileName(file.name);
+      setAutoReloadEnabled(true);
+
+      upsertFileInState(file.name, content);
+      setLastSavedContents((prev) => ({ ...prev, [file.name]: content }));
+
+      toast('Schema file linked', {
+        description: `${file.name} is now watched for changes.`,
+      });
+    } catch (error) {
+      console.error('Failed to link schema file:', error);
+      toast('File selection canceled', {
+        description: 'No external file was linked.',
       });
     }
   };
@@ -191,6 +274,33 @@ const Editor = () => {
       }
     };
   }, [appState?.files, showVisualizer]);
+
+  useEffect(() => {
+    if (!autoReloadEnabled || !linkedFileHandleRef.current) return;
+
+    const intervalId = window.setInterval(async () => {
+      const handle = linkedFileHandleRef.current;
+      if (!handle) return;
+
+      try {
+        const file = await handle.getFile();
+        const content = await file.text();
+        if (content === lastLinkedFileContentRef.current) return;
+
+        lastLinkedFileContentRef.current = content;
+        upsertFileInState(file.name, content);
+        setLastSavedContents((prev) => ({ ...prev, [file.name]: content }));
+
+        toast('External schema reloaded', {
+          description: `${file.name} changed on disk and was reloaded.`,
+        });
+      } catch (error) {
+        console.error('Auto-reload failed:', error);
+      }
+    }, 1500);
+
+    return () => window.clearInterval(intervalId);
+  }, [autoReloadEnabled]);
 
   const handleFileSelect = (fileName: string) => {
     if (!appState) return;
@@ -281,6 +391,8 @@ const Editor = () => {
 
   return (
     <EditorLayout
+      canvasOnly={canvasOnly}
+      onToggleCanvasOnly={() => setCanvasOnly((prev) => !prev)}
       sidebar={
         <Sidebar
           files={appState.files}
@@ -302,6 +414,28 @@ const Editor = () => {
             </Button>
 
             <div className="flex items-center gap-2">
+              <Button
+                variant={linkedFileName ? 'secondary' : 'outline'}
+                size="sm"
+                className="flex items-center gap-1"
+                onClick={handleLinkSchemaFile}
+                disabled={!hasFileSystemApi}
+              >
+                <Link2 className="h-4 w-4" />
+                {linkedFileName ? `Linked: ${linkedFileName}` : 'Link schema.ts'}
+              </Button>
+
+              <Button
+                variant={autoReloadEnabled ? 'secondary' : 'outline'}
+                size="sm"
+                className="flex items-center gap-1"
+                onClick={() => setAutoReloadEnabled((prev) => !prev)}
+                disabled={!linkedFileName}
+              >
+                <RefreshCw className="h-4 w-4" />
+                {autoReloadEnabled ? 'Auto reload ON' : 'Auto reload OFF'}
+              </Button>
+
               <Button
                 variant={hasUnsavedChanges ? 'default' : 'outline'}
                 size="sm"

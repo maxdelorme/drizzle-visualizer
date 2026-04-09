@@ -29,17 +29,21 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
   onCanvasStateChange,
   appState,
 }) => {
+  const ZOOM_MIN = 0.2;
+  const ZOOM_MAX = 2.0;
+  const ZOOM_STEP = 0.1;
+
   const handleZoomIn = () => {
     onCanvasStateChange({
       ...canvasState,
-      zoom: Math.min(canvasState.zoom + 0.1, 2.0),
+      zoom: Math.min(canvasState.zoom + ZOOM_STEP, ZOOM_MAX),
     });
   };
 
   const handleZoomOut = () => {
     onCanvasStateChange({
       ...canvasState,
-      zoom: Math.max(canvasState.zoom - 0.1, 0.5),
+      zoom: Math.max(canvasState.zoom - ZOOM_STEP, ZOOM_MIN),
     });
   };
 
