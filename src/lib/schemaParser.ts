@@ -85,8 +85,16 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
       // Parse columns
       const columns: SchemaTable["columns"] = [];
 
-      // Look for columns in the table definition
-      const columnMatches = [...tableDefinition.matchAll(columnRegex)];
+      // Ignore single-line comments so commented columns are not parsed.
+      const tableDefinitionWithoutLineComments = tableDefinition
+        .split("\n")
+        .map((line) => (line.trimStart().startsWith("//") ? "" : line))
+        .join("\n");
+
+      // Look for columns in the sanitized table definition
+      const columnMatches = [
+        ...tableDefinitionWithoutLineComments.matchAll(columnRegex),
+      ];
 
       columnMatches.forEach((match) => {
         const columnName = match[1]; // name
