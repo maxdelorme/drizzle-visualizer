@@ -43,6 +43,9 @@ const Editor = () => {
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [showVisualizer, setShowVisualizer] = useState(true);
   const [canvasOnly, setCanvasOnly] = useState(false);
+  const [relationStyle, setRelationStyle] = useState<'curved' | 'straight'>(
+    'straight',
+  );
   const [linkedFileName, setLinkedFileName] = useState<string | null>(null);
   const [autoReloadEnabled, setAutoReloadEnabled] = useState(false);
   const [lastSavedContents, setLastSavedContents] = useState<
@@ -393,6 +396,10 @@ const Editor = () => {
     <EditorLayout
       canvasOnly={canvasOnly}
       onToggleCanvasOnly={() => setCanvasOnly((prev) => !prev)}
+      relationStyle={relationStyle}
+      onToggleRelationStyle={() =>
+        setRelationStyle((prev) => (prev === 'curved' ? 'straight' : 'curved'))
+      }
       sidebar={
         <Sidebar
           files={appState.files}
@@ -465,6 +472,7 @@ const Editor = () => {
           <CanvasView
             tables={tables}
             layoutVersion={layoutVersion}
+            relationStyle={relationStyle}
             canvasState={appState.canvasState}
             onCanvasStateChange={handleCanvasStateChange}
           />

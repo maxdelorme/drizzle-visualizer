@@ -9,6 +9,8 @@ interface EditorLayoutProps {
   controls: React.ReactNode;
   canvasOnly: boolean;
   onToggleCanvasOnly: () => void;
+  relationStyle: 'curved' | 'straight';
+  onToggleRelationStyle: () => void;
 }
 
 const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -18,6 +20,8 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
   controls,
   canvasOnly,
   onToggleCanvasOnly,
+  relationStyle,
+  onToggleRelationStyle,
 }) => {
   return (
     <div className="h-dvh w-full flex flex-col overflow-hidden">
@@ -28,9 +32,14 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
           </span>
         </a>
 
-        <Button variant="outline" size="sm" onClick={onToggleCanvasOnly}>
-          {canvasOnly ? 'Exit Canvas Only' : 'Display Only Canvas'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onToggleRelationStyle}>
+            {relationStyle === 'curved' ? 'Curved Lines' : 'Straight Lines'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onToggleCanvasOnly}>
+            {canvasOnly ? 'Exit Canvas Only' : 'Display Only Canvas'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">

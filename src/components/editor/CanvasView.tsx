@@ -4,6 +4,7 @@ import { AppState, SchemaTable } from '@/pages/Editor';
 interface CanvasViewProps {
   tables: SchemaTable[];
   layoutVersion: number;
+  relationStyle: 'curved' | 'straight';
   canvasState: AppState['canvasState'];
   onCanvasStateChange: (newState: AppState['canvasState']) => void;
 }
@@ -133,6 +134,7 @@ const buildLandscapePositions = (tables: SchemaTable[]) => {
 const CanvasView: React.FC<CanvasViewProps> = ({
   tables,
   layoutVersion,
+  relationStyle,
   canvasState,
   onCanvasStateChange,
 }) => {
@@ -373,17 +375,36 @@ const CanvasView: React.FC<CanvasViewProps> = ({
       const fromX = bestAnchor.fromX;
       const toX = bestAnchor.toX;
 
-      // Draw a path for the relation
+      // Draw relation path using selected style.
       const fromSide = fromX === fromPos.x ? 'left' : 'right';
       const toSide = toX === toPos.x ? 'left' : 'right';
-      const horizontalDistance = Math.abs(toX - fromX);
-      const curveStrength = Math.max(45, horizontalDistance * 0.35);
       const fromDirection = fromSide === 'left' ? -1 : 1;
       const toDirection = toSide === 'left' ? -1 : 1;
+      const horizontalDistance = Math.abs(toX - fromX);
+      const path =
+        relationStyle === 'curved'
+          ? (() => {
+              const curveStrength = Math.max(45, horizontalDistance * 0.35);
+              const c1x = fromX + fromDirection * curveStrength;
+              const c2x = toX + toDirection * curveStrength;
+              return `M ${fromX} ${fromY} C ${c1x} ${fromY}, ${c2x} ${toY}, ${toX} ${toY}`;
+            })()
+          : (() => {
+              const stub = Math.max(28, Math.min(70, horizontalDistance * 0.35));
+              const startX = fromX + fromDirection * stub;
+              const endX = toX + toDirection * stub;
 
-      const path = `M ${fromX} ${fromY} C ${
-        fromX + fromDirection * curveStrength
-      } ${fromY}, ${toX + toDirection * curveStrength} ${toY}, ${toX} ${toY}`;
+              let midX = (startX + endX) / 2;
+              if (fromDirection === toDirection) {
+                const bendOffset = Math.max(60, horizontalDistance * 0.2);
+                midX =
+                  fromDirection === -1
+                    ? Math.min(startX, endX) - bendOffset
+                    : Math.max(startX, endX) + bendOffset;
+              }
+
+              return `M ${fromX} ${fromY} L ${startX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${endX} ${toY} L ${toX} ${toY}`;
+            })();
 
       return (
         <path
