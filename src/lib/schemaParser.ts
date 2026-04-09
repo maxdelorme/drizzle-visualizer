@@ -1,5 +1,5 @@
-import { AppFile } from '@/pages/Editor';
-import { SchemaTable } from '@/pages/Editor';
+import { AppFile } from "@/pages/Editor";
+import { SchemaTable } from "@/pages/Editor";
 
 // Enhanced parser to extract schema information from Drizzle code
 export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
@@ -8,11 +8,15 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
   // Improved regex patterns to match different parts of Drizzle schema
   const tableRegex =
     /export\s+const\s+(\w+)\s*=\s*(\w+)(?:Table|(?:\.pgTable))\s*\(\s*["'](\w+)["']/g;
+  // const columnRegex =
+  //   /(\w+)\s*:\s*(?:t\.)?(\w+)\s*\([^)]*\)(?:\.(\w+)\([^)]*\))*(?:\.notNull\(\))?(?:\.\w+\([^)]*\))*/gm;
   const columnRegex =
-    /(\w+)\s*:\s*(?:t\.)?(\w+)\s*\([^)]*\)(?:\.(\w+)\([^)]*\))*(?:\.notNull\(\))?(?:\.\w+\([^)]*\))*/g;
+    /(\w+)\s*:\s*(?:t\.)?(\w+)\s*\([^)]*\)(?:\s*\.([\w\$]+)\([^\n]*)*/gm;
   const primaryKeyRegex = /primaryKey|primary/i;
+  // const referencesRegex =
+  //   /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)(?:\.(\w+))?\s*\)/;
   const referencesRegex =
-    /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)(?:\.(\w+))?\s*\)/;
+    /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)\.(\w+)/m;
 
   // Track relations for post-processing
   const relations: {
@@ -47,12 +51,12 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
       let tableEndIndex = content.length;
 
       for (let i = tableStartIndex; i < content.length; i++) {
-        if (content[i] === '{' && !foundOpeningBrace) {
+        if (content[i] === "{" && !foundOpeningBrace) {
           foundOpeningBrace = true;
           braceCount++;
         } else if (foundOpeningBrace) {
-          if (content[i] === '{') braceCount++;
-          else if (content[i] === '}') {
+          if (content[i] === "{") braceCount++;
+          else if (content[i] === "}") {
             braceCount--;
             if (braceCount === 0) {
               tableEndIndex = i + 1;
@@ -67,7 +71,7 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
       console.log(`Table definition length: ${tableDefinition.length} chars`);
 
       // Parse columns
-      const columns: SchemaTable['columns'] = [];
+      const columns: SchemaTable["columns"] = [];
 
       // Look for columns in the table definition
       const columnMatches = [...tableDefinition.matchAll(columnRegex)];
@@ -77,23 +81,30 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
         const columnType = match[2]; // varchar, integer, etc.
         const columnModifiers = match[0]; // full match for additional checks
 
-        console.log(`Found column: ${columnName}, type: ${columnType}`);
+        // console.log(
+        //   `Found column: ${columnName}, type: ${columnType}, modifiers: ${columnModifiers}`,
+        // );
 
         // Check if this is a primary key
         const isPrimary = primaryKeyRegex.test(columnModifiers);
 
         // Check if this is a foreign key
         const referenceMatch = referencesRegex.exec(columnModifiers);
+        console.log(
+          `columnModifiers: "${columnModifiers}", referencesRegex: "${referencesRegex}", referenceMatch: "${referenceMatch}"`,
+        );
         const isForeign = !!referenceMatch;
-
         if (isForeign && referenceMatch) {
           // Store the relation for post-processing
           relations.push({
             sourceTable: tableName,
             sourceColumn: columnName,
             targetTable: referenceMatch[1],
-            targetColumn: referenceMatch[2] || 'id', // Default to 'id' if not specified
+            targetColumn: referenceMatch[2] || "id", // Default to 'id' if not specified
           });
+          console.log(
+            `Found relation: ${tableName}.${columnName} -> ${referenceMatch[1]}.${referenceMatch[2]}`,
+          );
         }
 
         // Add the column to our collection
@@ -117,40 +128,40 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
   });
 
   // Also look for explicit relation tables (many-to-many)
-  files.forEach((file) => {
-    const content = file.content;
+  // files.forEach((file) => {
+  //   const content = file.content;
 
-    // Simple regex to find relation declarations
-    const relationRegex =
-      /relations\s*\(\s*(\w+)\s*,.*?fields\s*:\s*\[\s*(\w+)\.(\w+)\s*\].*?references\s*:\s*\[\s*(\w+)\.(\w+)\s*\]/gs;
+  //   // Simple regex to find relation declarations
+  //   const relationRegex =
+  //     /relations\s*\(\s*(\w+)\s*,.*?fields\s*:\s*\[\s*(\w+)\.(\w+)\s*\].*?references\s*:\s*\[\s*(\w+)\.(\w+)\s*\]/gs;
 
-    let relationMatch;
-    while ((relationMatch = relationRegex.exec(content)) !== null) {
-      const sourceTable = relationMatch[1];
-      const targetVariable = relationMatch[2];
-      const sourceColumn = relationMatch[3];
-      const targetTable = relationMatch[4];
-      const targetColumn = relationMatch[5];
+  //   let relationMatch;
+  //   while ((relationMatch = relationRegex.exec(content)) !== null) {
+  //     const sourceTable = relationMatch[1];
+  //     const targetVariable = relationMatch[2];
+  //     const sourceColumn = relationMatch[3];
+  //     const targetTable = relationMatch[4];
+  //     const targetColumn = relationMatch[5];
 
-      // Add to relations if not already captured
-      const exists = relations.some(
-        (r) =>
-          r.sourceTable === sourceTable &&
-          r.sourceColumn === sourceColumn &&
-          r.targetTable === targetTable &&
-          r.targetColumn === targetColumn,
-      );
+  //     // Add to relations if not already captured
+  //     const exists = relations.some(
+  //       (r) =>
+  //         r.sourceTable === sourceTable &&
+  //         r.sourceColumn === sourceColumn &&
+  //         r.targetTable === targetTable &&
+  //         r.targetColumn === targetColumn,
+  //     );
 
-      if (!exists) {
-        relations.push({
-          sourceTable,
-          sourceColumn,
-          targetTable,
-          targetColumn,
-        });
-      }
-    }
-  });
+  //     if (!exists) {
+  //       relations.push({
+  //         sourceTable,
+  //         sourceColumn,
+  //         targetTable,
+  //         targetColumn,
+  //       });
+  //     }
+  //   }
+  // });
 
   // Update tables with relation information
   relations.forEach((relation) => {
@@ -168,7 +179,7 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
         // Column not found, add it
         sourceTable.columns.push({
           name: relation.sourceColumn,
-          type: 'relation',
+          type: "relation",
           isPrimary: false,
           isForeign: true,
           references: relation.targetTable,
@@ -178,8 +189,8 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
   });
 
   // Add debug logging to see what was parsed
-  console.log('Parsed tables:', tables);
-  console.log('Detected relations:', relations);
+  console.log("Parsed tables:", tables);
+  console.log("Detected relations:", relations);
 
   return tables;
 }
