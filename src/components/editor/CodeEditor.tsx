@@ -53,11 +53,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
       <div className="p-2 border-b border-gray-800 bg-[#1e1e1e] text-sm">
         {activeFile}
       </div>
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-auto">
         <Editor
           value={content}
           onValueChange={handleContentChange}

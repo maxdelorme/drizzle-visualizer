@@ -288,7 +288,7 @@ const Editor = () => {
         />
       }
       editor={
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full min-h-0">
           <div className="border-b p-2 flex justify-between items-center">
             <Button
               onClick={handleVisualize}
