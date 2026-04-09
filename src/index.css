@@ -101,6 +101,19 @@
 
 .code-editor {
   font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.code-editor textarea,
+.code-editor pre {
+  min-height: 100%;
+  height: auto !important;
+}
+
+.code-editor textarea {
+  overflow: hidden !important;
+  white-space: pre;
 }
 
 .bg-grid {

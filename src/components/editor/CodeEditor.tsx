@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AppFile } from '@/pages/Editor';
+import Editor from 'react-simple-code-editor';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/themes/prism-tomorrow.css';
 
 interface CodeEditorProps {
   files: AppFile[];
@@ -23,13 +28,20 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   }, [activeFile, files]);
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
+  const handleContentChange = (newContent: string) => {
     setContent(newContent);
 
     if (activeFile) {
       onContentChange(activeFile, newContent);
     }
+  };
+
+  const getLanguage = (fileName: string) => {
+    if (fileName.endsWith('.ts')) return Prism.languages.typescript;
+    if (fileName.endsWith('.tsx')) return Prism.languages.typescript;
+    if (fileName.endsWith('.js')) return Prism.languages.javascript;
+    if (fileName.endsWith('.jsx')) return Prism.languages.javascript;
+    return Prism.languages.javascript;
   };
 
   if (!activeFile) {
@@ -46,10 +58,21 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         {activeFile}
       </div>
       <div className="flex-1 overflow-auto">
-        <textarea
-          className="w-full h-full p-4 bg-[#1e1e1e] text-[#d4d4d4] font-mono text-sm resize-none outline-none code-editor"
+        <Editor
           value={content}
-          onChange={handleContentChange}
+          onValueChange={handleContentChange}
+          highlight={(code) =>
+            Prism.highlight(code, getLanguage(activeFile), 'javascript')
+          }
+          padding={16}
+          textareaId="schema-code-editor"
+          textareaClassName="outline-none"
+          preClassName="!m-0"
+          className="w-full min-h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-sm code-editor"
+          style={{
+            fontFamily:
+              'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace',
+          }}
           spellCheck={false}
         />
       </div>
