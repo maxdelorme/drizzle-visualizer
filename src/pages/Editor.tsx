@@ -40,6 +40,7 @@ const Editor = () => {
   const [searchParams] = useSearchParams();
   const [appState, setAppState] = useState<AppState | null>(null);
   const [tables, setTables] = useState<SchemaTable[]>([]);
+  const [layoutVersion, setLayoutVersion] = useState(0);
   const [showVisualizer, setShowVisualizer] = useState(true);
   const [lastSavedContents, setLastSavedContents] = useState<
     Record<string, string>
@@ -82,6 +83,7 @@ const Editor = () => {
     const parsedTables = parseSchemaFromCode(appState.files);
     console.log('Visualizing tables:', parsedTables);
     setTables(parsedTables);
+    setLayoutVersion((prev) => prev + 1);
 
     // Show visualizer if hidden
     setShowVisualizer(true);
@@ -296,7 +298,7 @@ const Editor = () => {
               className="flex items-center gap-1"
             >
               <Database className="h-4 w-4" />
-              Visualize Schema
+              Auto Layout Schema
             </Button>
 
             <div className="flex items-center gap-2">
@@ -328,6 +330,7 @@ const Editor = () => {
         showVisualizer ? (
           <CanvasView
             tables={tables}
+            layoutVersion={layoutVersion}
             canvasState={appState.canvasState}
             onCanvasStateChange={handleCanvasStateChange}
           />

@@ -90,9 +90,6 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
 
         // Check if this is a foreign key
         const referenceMatch = referencesRegex.exec(columnModifiers);
-        console.log(
-          `columnModifiers: "${columnModifiers}", referencesRegex: "${referencesRegex}", referenceMatch: "${referenceMatch}"`,
-        );
         const isForeign = !!referenceMatch;
         if (isForeign && referenceMatch) {
           // Store the relation for post-processing

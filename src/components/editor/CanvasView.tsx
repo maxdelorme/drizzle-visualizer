@@ -3,6 +3,7 @@ import { AppState, SchemaTable } from '@/pages/Editor';
 
 interface CanvasViewProps {
   tables: SchemaTable[];
+  layoutVersion: number;
   canvasState: AppState['canvasState'];
   onCanvasStateChange: (newState: AppState['canvasState']) => void;
 }
@@ -91,55 +92,84 @@ const buildRelationLayout = (tables: SchemaTable[]) => {
   });
 };
 
+const buildLandscapePositions = (tables: SchemaTable[]) => {
+  const newPositions: Record<string, { x: number; y: number }> = {};
+  const orderedTables = buildRelationLayout(tables);
+  const totalTables = orderedTables.length;
+  const columns = Math.max(
+    2,
+    Math.ceil(Math.sqrt(totalTables * LANDSCAPE_ASPECT_RATIO)),
+  );
+  const rows = Math.ceil(totalTables / columns);
+  const rowHeights = Array.from({ length: rows }, () => 0);
+
+  orderedTables.forEach((table, index) => {
+    const row = Math.floor(index / columns);
+    rowHeights[row] = Math.max(rowHeights[row], getTableHeight(table));
+  });
+
+  const rowOffsets = Array.from({ length: rows }, () => 0);
+  let nextRowY = CANVAS_MARGIN;
+  rowHeights.forEach((height, row) => {
+    rowOffsets[row] = nextRowY;
+    nextRowY += height + TABLE_ROW_GAP;
+  });
+
+  orderedTables.forEach((table, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    newPositions[table.name] = {
+      x: CANVAS_MARGIN + col * (TABLE_WIDTH + TABLE_COLUMN_GAP),
+      y: rowOffsets[row],
+    };
+  });
+
+  return newPositions;
+};
+
 const CanvasView: React.FC<CanvasViewProps> = ({
   tables,
+  layoutVersion,
   canvasState,
   onCanvasStateChange,
 }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const lastAppliedLayoutVersionRef = useRef(layoutVersion);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [tablePositions, setTablePositions] = useState<
     Record<string, { x: number; y: number }>
   >({});
 
-  // Initialize table positions with a landscape-oriented grid.
+  // Keep table positions on auto-refresh; relayout only when requested.
   useEffect(() => {
-    if (tables.length === 0) return;
+    setTablePositions((previousPositions) => {
+      if (tables.length === 0) return {};
 
-    const newPositions: Record<string, { x: number; y: number }> = {};
-    const orderedTables = buildRelationLayout(tables);
-    const totalTables = orderedTables.length;
-    const columns = Math.max(
-      2,
-      Math.ceil(Math.sqrt(totalTables * LANDSCAPE_ASPECT_RATIO)),
-    );
-    const rows = Math.ceil(totalTables / columns);
-    const rowHeights = Array.from({ length: rows }, () => 0);
+      const shouldRelayout = layoutVersion !== lastAppliedLayoutVersionRef.current;
+      if (shouldRelayout || Object.keys(previousPositions).length === 0) {
+        lastAppliedLayoutVersionRef.current = layoutVersion;
+        return buildLandscapePositions(tables);
+      }
 
-    orderedTables.forEach((table, index) => {
-      const row = Math.floor(index / columns);
-      rowHeights[row] = Math.max(rowHeights[row], getTableHeight(table));
+      const nextPositions: Record<string, { x: number; y: number }> = {};
+      tables.forEach((table) => {
+        if (previousPositions[table.name]) {
+          nextPositions[table.name] = previousPositions[table.name];
+        }
+      });
+
+      const missingTables = tables.filter((table) => !nextPositions[table.name]);
+      if (missingTables.length > 0) {
+        const autoPositions = buildLandscapePositions(tables);
+        missingTables.forEach((table) => {
+          nextPositions[table.name] = autoPositions[table.name];
+        });
+      }
+
+      return nextPositions;
     });
-
-    const rowOffsets = Array.from({ length: rows }, () => 0);
-    let nextRowY = CANVAS_MARGIN;
-    rowHeights.forEach((height, row) => {
-      rowOffsets[row] = nextRowY;
-      nextRowY += height + TABLE_ROW_GAP;
-    });
-
-    orderedTables.forEach((table, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
-      newPositions[table.name] = {
-        x: CANVAS_MARGIN + col * (TABLE_WIDTH + TABLE_COLUMN_GAP),
-        y: rowOffsets[row],
-      };
-    });
-
-    setTablePositions(newPositions);
-  }, [tables]);
+  }, [tables, layoutVersion]);
 
   const handleMouseDown = (event: React.MouseEvent) => {
     if (event.target === canvasRef.current) {
