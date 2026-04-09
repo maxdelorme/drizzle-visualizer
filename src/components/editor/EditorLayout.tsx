@@ -11,6 +11,9 @@ interface EditorLayoutProps {
   onToggleCanvasOnly: () => void;
   relationStyle: 'curved' | 'straight';
   onToggleRelationStyle: () => void;
+  onSaveLayoutPositions: () => void;
+  onLoadLayoutPositions: () => void;
+  canSaveLayoutPositions: boolean;
 }
 
 const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -22,6 +25,9 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
   onToggleCanvasOnly,
   relationStyle,
   onToggleRelationStyle,
+  onSaveLayoutPositions,
+  onLoadLayoutPositions,
+  canSaveLayoutPositions,
 }) => {
   return (
     <div className="h-dvh w-full flex flex-col overflow-hidden">
@@ -32,7 +38,22 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({
           </span>
         </a>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant={canSaveLayoutPositions ? 'default' : 'outline'}
+            size="sm"
+            onClick={onSaveLayoutPositions}
+            disabled={!canSaveLayoutPositions}
+          >
+            Save positions
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onLoadLayoutPositions}
+          >
+            Load layout
+          </Button>
           <Button variant="outline" size="sm" onClick={onToggleRelationStyle}>
             {relationStyle === 'curved' ? 'Curved Lines' : 'Straight Lines'}
           </Button>

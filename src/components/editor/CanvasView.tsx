@@ -1,5 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { AppState, SchemaTable } from '@/pages/Editor';
+
+export type CanvasViewHandle = {
+  getTablePositions: () => Record<string, { x: number; y: number }>;
+};
 
 interface CanvasViewProps {
   tables: SchemaTable[];
@@ -7,6 +18,9 @@ interface CanvasViewProps {
   relationStyle: 'curved' | 'straight';
   canvasState: AppState['canvasState'];
   onCanvasStateChange: (newState: AppState['canvasState']) => void;
+  /** When requestId changes, merge these positions into current tables */
+  applyLayoutRequest?: { requestId: number; tables: Record<string, { x: number; y: number }> } | null;
+  onTablesManuallyMoved?: () => void;
 }
 
 let persistedTablePositions: Record<string, { x: number; y: number }> = {};
@@ -154,13 +168,18 @@ const buildLandscapePositions = (tables: SchemaTable[]) => {
   return newPositions;
 };
 
-const CanvasView: React.FC<CanvasViewProps> = ({
-  tables,
-  layoutVersion,
-  relationStyle,
-  canvasState,
-  onCanvasStateChange,
-}) => {
+const CanvasView = forwardRef<CanvasViewHandle, CanvasViewProps>(function CanvasView(
+  {
+    tables,
+    layoutVersion,
+    relationStyle,
+    canvasState,
+    onCanvasStateChange,
+    applyLayoutRequest,
+    onTablesManuallyMoved,
+  },
+  ref,
+) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const lastAppliedLayoutVersionRef = useRef(
     Math.max(layoutVersion, persistedLayoutVersion),
@@ -171,6 +190,11 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     Record<string, { x: number; y: number }>
   >(persistedTablePositions);
   const canvasStateRef = useRef(canvasState);
+  const lastLayoutMergeKeyRef = useRef('');
+  const tableNamesKey = useMemo(
+    () => [...tables].map((t) => t.name).sort().join('|'),
+    [tables],
+  );
 
   // Keep table positions on auto-refresh; relayout only when requested.
   useEffect(() => {
@@ -213,6 +237,33 @@ const CanvasView: React.FC<CanvasViewProps> = ({
   useEffect(() => {
     canvasStateRef.current = canvasState;
   }, [canvasState]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getTablePositions: () => tablePositions,
+    }),
+    [tablePositions],
+  );
+
+  useEffect(() => {
+    if (!applyLayoutRequest || applyLayoutRequest.requestId === 0) return;
+    const mergeKey = `${applyLayoutRequest.requestId}|${tableNamesKey}`;
+    if (mergeKey === lastLayoutMergeKeyRef.current) return;
+    lastLayoutMergeKeyRef.current = mergeKey;
+
+    const incoming = applyLayoutRequest.tables;
+    setTablePositions((prev) => {
+      const next = { ...prev };
+      tables.forEach((table) => {
+        const p = incoming[table.name];
+        if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          next[table.name] = { x: p.x, y: p.y };
+        }
+      });
+      return next;
+    });
+  }, [applyLayoutRequest, tableNamesKey, tables]);
 
   const handleMouseDown = (event: React.MouseEvent) => {
     if (event.target === canvasRef.current) {
@@ -287,7 +338,9 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     event.preventDefault();
     event.stopPropagation();
     const { clientX, clientY } = event;
-    const { x, y } = tablePositions[tableName];
+    const pos = tablePositions[tableName];
+    if (!pos) return;
+    const { x, y } = pos;
     const originalUserSelect = document.body.style.userSelect;
 
     const startX = clientX - x;
@@ -309,6 +362,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
       document.removeEventListener('mousemove', handleTableDragMove);
       document.removeEventListener('mouseup', handleTableDragEnd);
       document.body.style.userSelect = originalUserSelect;
+      onTablesManuallyMoved?.();
     };
 
     document.addEventListener('mousemove', handleTableDragMove);
@@ -529,6 +583,8 @@ const CanvasView: React.FC<CanvasViewProps> = ({
       </div>
     </div>
   );
-};
+});
+
+CanvasView.displayName = 'CanvasView';
 
 export default CanvasView;

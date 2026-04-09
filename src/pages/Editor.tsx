@@ -4,10 +4,16 @@ import { decodeState } from '@/lib/stateUtils';
 import EditorLayout from '@/components/editor/EditorLayout';
 import Sidebar from '@/components/editor/Sidebar';
 import CodeEditor from '@/components/editor/CodeEditor';
-import CanvasView from '@/components/editor/CanvasView';
+import CanvasView, { type CanvasViewHandle } from '@/components/editor/CanvasView';
 import CanvasControls from '@/components/editor/CanvasControls';
 import { toast } from 'sonner';
 import { parseSchemaFromCode } from '@/lib/schemaParser';
+import {
+  buildLayoutFromPositions,
+  parseSchemaLayout,
+  SCHEMA_LAYOUT_FILENAME,
+  stringifySchemaLayout,
+} from '@/lib/schemaLayout';
 import { Button } from '@/components/ui/button';
 import { Database, Link2, RefreshCw, Save } from 'lucide-react';
 
@@ -46,6 +52,11 @@ const Editor = () => {
   const [relationStyle, setRelationStyle] = useState<'curved' | 'straight'>(
     'straight',
   );
+  const [layoutPositionsDirty, setLayoutPositionsDirty] = useState(false);
+  const [layoutApplyRequest, setLayoutApplyRequest] = useState<{
+    requestId: number;
+    tables: Record<string, { x: number; y: number }>;
+  } | null>(null);
   const [linkedFileName, setLinkedFileName] = useState<string | null>(null);
   const [autoReloadEnabled, setAutoReloadEnabled] = useState(false);
   const [lastSavedContents, setLastSavedContents] = useState<
@@ -55,6 +66,10 @@ const Editor = () => {
   const fileHandlesRef = useRef<Record<string, any>>({});
   const linkedFileHandleRef = useRef<any | null>(null);
   const lastLinkedFileContentRef = useRef<string>('');
+  const canvasViewRef = useRef<CanvasViewHandle>(null);
+  const layoutSaveFileHandleRef = useRef<any | null>(null);
+  const layoutLoadInputRef = useRef<HTMLInputElement>(null);
+  const layoutApplyIdRef = useRef(0);
 
   useEffect(() => {
     const stateParam = searchParams.get('state');
@@ -95,6 +110,118 @@ const Editor = () => {
   );
 
   // Visualize schema when actively triggered by user
+  const applyLayoutFromParsed = (parsed: { tables: Record<string, { x: number; y: number }> }) => {
+    layoutApplyIdRef.current += 1;
+    setLayoutApplyRequest({
+      requestId: layoutApplyIdRef.current,
+      tables: parsed.tables,
+    });
+    setLayoutPositionsDirty(false);
+  };
+
+  const handleSaveLayoutPositions = async () => {
+    const positions = canvasViewRef.current?.getTablePositions() ?? {};
+    const tablesOnly: Record<string, { x: number; y: number }> = {};
+    tables.forEach((t) => {
+      const p = positions[t.name];
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        tablesOnly[t.name] = { x: p.x, y: p.y };
+      }
+    });
+
+    const json = stringifySchemaLayout(buildLayoutFromPositions(tablesOnly));
+
+    try {
+      const w = window as Window & {
+        showSaveFilePicker?: (options?: Record<string, unknown>) => Promise<any>;
+      };
+
+      const handle =
+        layoutSaveFileHandleRef.current ||
+        (w.showSaveFilePicker
+          ? await w.showSaveFilePicker({
+              suggestedName: SCHEMA_LAYOUT_FILENAME,
+              types: [
+                {
+                  description: 'Schema layout',
+                  accept: { 'application/json': ['.json'] },
+                },
+              ],
+            })
+          : null);
+
+      if (handle) {
+        const writable = await handle.createWritable();
+        await writable.write(json);
+        await writable.close();
+        layoutSaveFileHandleRef.current = handle;
+      } else {
+        const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = SCHEMA_LAYOUT_FILENAME;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      setLayoutPositionsDirty(false);
+      toast('Layout saved', {
+        description: SCHEMA_LAYOUT_FILENAME,
+      });
+    } catch (error) {
+      console.error('Failed to save layout:', error);
+      toast('Layout save canceled or failed', {
+        description: 'No layout file was written.',
+      });
+    }
+  };
+
+  const handleLoadLayoutFromText = (text: string) => {
+    const parsed = parseSchemaLayout(text);
+    if (!parsed) {
+      toast('Invalid layout file', {
+        description: `Expected ${SCHEMA_LAYOUT_FILENAME} with version 1 and a tables object.`,
+      });
+      return;
+    }
+    applyLayoutFromParsed(parsed);
+    toast('Layout loaded', {
+      description: 'Table positions were updated from the file.',
+    });
+  };
+
+  const handleLoadLayoutPositions = async () => {
+    if (hasFileSystemApi) {
+      try {
+        const w = window as Window & {
+          showOpenFilePicker?: (options?: Record<string, unknown>) => Promise<any[]>;
+        };
+        const [handle] =
+          (await w.showOpenFilePicker?.({
+            multiple: false,
+            types: [
+              {
+                description: 'Schema layout',
+                accept: { 'application/json': ['.json'] },
+              },
+            ],
+          })) ?? [];
+        if (!handle) return;
+        const file = await handle.getFile();
+        const text = await file.text();
+        handleLoadLayoutFromText(text);
+      } catch (error) {
+        console.error('Failed to load layout:', error);
+        toast('Layout load canceled', {
+          description: 'No layout file was loaded.',
+        });
+      }
+    } else {
+      layoutLoadInputRef.current?.click();
+    }
+  };
+
   const handleVisualize = () => {
     if (!appState) return;
 
@@ -102,6 +229,7 @@ const Editor = () => {
     console.log('Visualizing tables:', parsedTables);
     setTables(parsedTables);
     setLayoutVersion((prev) => prev + 1);
+    setLayoutPositionsDirty(false);
 
     // Show visualizer if hidden
     setShowVisualizer(true);
@@ -393,13 +521,38 @@ const Editor = () => {
   }
 
   return (
-    <EditorLayout
+    <>
+      <input
+        ref={layoutLoadInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        aria-hidden
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          try {
+            const text = await file.text();
+            handleLoadLayoutFromText(text);
+          } catch (error) {
+            console.error('Failed to read layout file:', error);
+            toast('Could not read file', {
+              description: 'Please try another layout file.',
+            });
+          }
+        }}
+      />
+      <EditorLayout
       canvasOnly={canvasOnly}
       onToggleCanvasOnly={() => setCanvasOnly((prev) => !prev)}
       relationStyle={relationStyle}
       onToggleRelationStyle={() =>
         setRelationStyle((prev) => (prev === 'curved' ? 'straight' : 'curved'))
       }
+      onSaveLayoutPositions={handleSaveLayoutPositions}
+      onLoadLayoutPositions={handleLoadLayoutPositions}
+      canSaveLayoutPositions={layoutPositionsDirty && tables.length > 0}
       sidebar={
         <Sidebar
           files={appState.files}
@@ -470,11 +623,14 @@ const Editor = () => {
       canvas={
         showVisualizer ? (
           <CanvasView
+            ref={canvasViewRef}
             tables={tables}
             layoutVersion={layoutVersion}
             relationStyle={relationStyle}
             canvasState={appState.canvasState}
             onCanvasStateChange={handleCanvasStateChange}
+            applyLayoutRequest={layoutApplyRequest}
+            onTablesManuallyMoved={() => setLayoutPositionsDirty(true)}
           />
         ) : (
           <div className="h-full w-full flex items-center justify-center bg-muted">
@@ -495,6 +651,7 @@ const Editor = () => {
         ) : null
       }
     />
+    </>
   );
 };
 
