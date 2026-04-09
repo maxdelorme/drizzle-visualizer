@@ -22,6 +22,20 @@ const LANDSCAPE_ASPECT_RATIO = 1.7;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 2.0;
 const ZOOM_STEP = 0.1;
+const TABLE_COLOR_PALETTE = [
+  '#1d4e89',
+  '#0f766e',
+  '#7c3aed',
+  '#b45309',
+  '#be185d',
+  '#166534',
+  '#0369a1',
+  '#7f1d1d',
+  '#4338ca',
+  '#0f766e',
+  '#9a3412',
+  '#374151',
+];
 
 const getTableHeight = (table: SchemaTable) =>
   TABLE_HEADER_HEIGHT + table.columns.length * TABLE_ROW_HEIGHT;
@@ -30,6 +44,15 @@ const getColumnY = (tableTop: number, columnIndex: number) =>
   tableTop +
   TABLE_HEADER_HEIGHT +
   (columnIndex > -1 ? columnIndex * TABLE_ROW_HEIGHT + TABLE_ROW_HEIGHT / 2 : 0);
+
+const hashString = (value: string) =>
+  Array.from(value).reduce(
+    (acc, char) => (acc * 31 + char.charCodeAt(0)) >>> 0,
+    0,
+  );
+
+const getTableColor = (tableName: string) =>
+  TABLE_COLOR_PALETTE[hashString(tableName) % TABLE_COLOR_PALETTE.length];
 
 const buildRelationLayout = (tables: SchemaTable[]) => {
   const tableByName = new Map(tables.map((table) => [table.name, table]));
@@ -410,7 +433,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
         <path
           key={index}
           d={path}
-          stroke="#7c3aed"
+          stroke={getTableColor(relation.from.table)}
           strokeWidth="1.8"
           fill="none"
           markerEnd="url(#arrowhead)"
@@ -451,7 +474,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
                 refY="3.5"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed" />
+                <polygon points="0 0, 10 3.5, 0 7" fill="context-stroke" />
               </marker>
             </defs>
             {drawRelations()}
@@ -467,7 +490,10 @@ const CanvasView: React.FC<CanvasViewProps> = ({
               }}
               onMouseDown={(e) => handleTableDragStart(e, table.name)}
             >
-              <div className="bg-primary text-primary-foreground px-4 py-2 font-medium cursor-move">
+              <div
+                className="px-4 py-2 font-medium cursor-move text-white"
+                style={{ backgroundColor: getTableColor(table.name) }}
+              >
                 {table.name}
               </div>
               <div className="p-0">
