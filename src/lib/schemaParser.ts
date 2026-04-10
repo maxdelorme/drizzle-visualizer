@@ -14,10 +14,13 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
   const columnRegex =
     /(\w+)\s*:\s*(?:t\.)?(\w+)\s*\([^)]*\)(?:\s*\.([\w\$]+)\([^\n]*)*/gm;
   const primaryKeyRegex = /primaryKey|primary/i;
+  const indexedRegex = /(?:\.unique\s*\(|\.index\s*\(|\bindex\b|\bindexed\b)/i;
   // const referencesRegex =
   //   /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)(?:\.(\w+))?\s*\)/;
   const referencesRegex =
     /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)\.(\w+)/m;
+  const explicitIndexOnRegex = /\b(?:uniqueIndex|index)\s*\([^)]*\)\s*\.on\s*\(([^)]*)\)/g;
+  const explicitIndexTargetRegex = /\b\w+\.(\w+)\b/g;
 
   // Track relations for post-processing
   const relations: {
@@ -56,24 +59,49 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
         `Found table: ${tableName}, variable: ${variableName}, type: ${tableType}`,
       );
 
-      // Extract table definition content
+      // Extract full pgTable(...) call content (columns + optional callbacks).
       const tableStartIndex = tableMatch.index;
-      let braceCount = 0;
-      let foundOpeningBrace = false;
+      const callStartIndex = content.indexOf("(", tableStartIndex);
       let tableEndIndex = content.length;
+      let parenCount = 0;
+      let inString = false;
+      let stringQuote = "";
+      let isEscaped = false;
 
-      for (let i = tableStartIndex; i < content.length; i++) {
-        if (content[i] === "{" && !foundOpeningBrace) {
-          foundOpeningBrace = true;
-          braceCount++;
-        } else if (foundOpeningBrace) {
-          if (content[i] === "{") braceCount++;
-          else if (content[i] === "}") {
-            braceCount--;
-            if (braceCount === 0) {
-              tableEndIndex = i + 1;
-              break;
-            }
+      for (let i = callStartIndex; i < content.length; i++) {
+        const char = content[i];
+
+        if (inString) {
+          if (isEscaped) {
+            isEscaped = false;
+            continue;
+          }
+          if (char === "\\") {
+            isEscaped = true;
+            continue;
+          }
+          if (char === stringQuote) {
+            inString = false;
+            stringQuote = "";
+          }
+          continue;
+        }
+
+        if (char === '"' || char === "'" || char === "`") {
+          inString = true;
+          stringQuote = char;
+          continue;
+        }
+
+        if (char === "(") {
+          parenCount++;
+          continue;
+        }
+        if (char === ")") {
+          parenCount--;
+          if (parenCount === 0) {
+            tableEndIndex = i + 1;
+            break;
           }
         }
       }
@@ -95,6 +123,19 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
       const columnMatches = [
         ...tableDefinitionWithoutLineComments.matchAll(columnRegex),
       ];
+      const indexedColumnNames = new Set<string>();
+
+      // Detect indexes declared in callback style:
+      // (table) => [index('name').on(table.colA, table.colB)]
+      let indexOnMatch;
+      while ((indexOnMatch = explicitIndexOnRegex.exec(tableDefinitionWithoutLineComments)) !== null) {
+        const onArgs = indexOnMatch[1] ?? "";
+        let targetMatch;
+        while ((targetMatch = explicitIndexTargetRegex.exec(onArgs)) !== null) {
+          indexedColumnNames.add(targetMatch[1]);
+        }
+      }
+      explicitIndexOnRegex.lastIndex = 0;
 
       columnMatches.forEach((match) => {
         const columnName = match[1]; // name
@@ -107,6 +148,8 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
 
         // Check if this is a primary key
         const isPrimary = primaryKeyRegex.test(columnModifiers);
+        const isIndexed =
+          indexedRegex.test(columnModifiers) || indexedColumnNames.has(columnName);
 
         // Check if this is a foreign key
         const referenceMatch = referencesRegex.exec(columnModifiers);
@@ -135,6 +178,7 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
           type: columnType,
           isPrimary,
           isForeign,
+          isIndexed,
           references: resolvedTargetTable,
         });
       });
@@ -204,6 +248,7 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
           type: "relation",
           isPrimary: false,
           isForeign: true,
+          isIndexed: false,
           references: relation.targetTable,
         });
       }

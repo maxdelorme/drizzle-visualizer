@@ -38,6 +38,7 @@ export interface SchemaTable {
     type: string;
     isPrimary: boolean;
     isForeign: boolean;
+    isIndexed: boolean;
     references?: string;
   }[];
 }

@@ -68,6 +68,13 @@ const hashString = (value: string) =>
 const getTableColor = (tableName: string) =>
   TABLE_COLOR_PALETTE[hashString(tableName) % TABLE_COLOR_PALETTE.length];
 
+const truncateMiddle = (value: string, maxLength = 20) => {
+  if (value.length <= maxLength) return value;
+  const leftLen = Math.ceil((maxLength - 3) / 2);
+  const rightLen = Math.floor((maxLength - 3) / 2);
+  return `${value.slice(0, leftLen)}...${value.slice(value.length - rightLen)}`;
+};
+
 const buildRelationLayout = (tables: SchemaTable[]) => {
   const tableByName = new Map(tables.map((table) => [table.name, table]));
   const tableNames = tables.map((table) => table.name);
@@ -565,9 +572,20 @@ const CanvasView = forwardRef<CanvasViewHandle, CanvasViewProps>(function Canvas
                           FK
                         </span>
                       )}
-                      <span>{column.name}</span>
+                      <span title={column.name}>
+                        {truncateMiddle(column.name, 20)}
+                      </span>
                     </div>
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-muted-foreground text-xs flex items-center gap-1">
+                      {column.isIndexed && (
+                        <span
+                          className="text-amber-600 inline-flex justify-center items-center w-[18px] aspect-square rounded-full border border-[#ff9200] bg-white"
+                          title="Indexed column"
+                          aria-label="Indexed column"
+                        >
+                          ⚡
+                        </span>
+                      )}
                       {column.type}
                     </span>
                   </div>
