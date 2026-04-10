@@ -349,15 +349,37 @@ const CanvasView = forwardRef<CanvasViewHandle, CanvasViewProps>(function Canvas
     if (!pos) return;
     const { x, y } = pos;
     const originalUserSelect = document.body.style.userSelect;
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
 
-    const startX = clientX - x;
-    const startY = clientY - y;
+    const rect = canvasElement.getBoundingClientRect();
+    const pointerWorldX =
+      (clientX - rect.left - canvasStateRef.current.position.x) /
+      canvasStateRef.current.zoom;
+    const pointerWorldY =
+      (clientY - rect.top - canvasStateRef.current.position.y) /
+      canvasStateRef.current.zoom;
+
+    const offsetX = pointerWorldX - x;
+    const offsetY = pointerWorldY - y;
 
     document.body.style.userSelect = 'none';
 
     const handleTableDragMove = (moveEvent: MouseEvent) => {
-      const newX = moveEvent.clientX - startX;
-      const newY = moveEvent.clientY - startY;
+      const currentRect = canvasElement.getBoundingClientRect();
+      const currentWorldX =
+        (moveEvent.clientX -
+          currentRect.left -
+          canvasStateRef.current.position.x) /
+        canvasStateRef.current.zoom;
+      const currentWorldY =
+        (moveEvent.clientY -
+          currentRect.top -
+          canvasStateRef.current.position.y) /
+        canvasStateRef.current.zoom;
+
+      const newX = currentWorldX - offsetX;
+      const newY = currentWorldY - offsetY;
 
       setTablePositions((prev) => ({
         ...prev,
