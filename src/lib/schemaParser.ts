@@ -21,6 +21,52 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
     /references\s*\(\s*\(\)\s*=>\s*(?:[\w.]+\.)?(\w+)\.(\w+)/m;
   const explicitIndexOnRegex = /\b(?:uniqueIndex|index)\s*\([^)]*\)\s*\.on\s*\(([^)]*)\)/g;
   const explicitIndexTargetRegex = /\b\w+\.(\w+)\b/g;
+  const extractFirstObjectBlock = (source: string) => {
+    const start = source.indexOf("{");
+    if (start === -1) return "";
+
+    let depth = 0;
+    let inString = false;
+    let quote = "";
+    let escaped = false;
+
+    for (let i = start; i < source.length; i++) {
+      const char = source[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (char === quote) {
+          inString = false;
+          quote = "";
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'" || char === "`") {
+        inString = true;
+        quote = char;
+        continue;
+      }
+
+      if (char === "{") {
+        depth++;
+      } else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          return source.substring(start, i + 1);
+        }
+      }
+    }
+
+    return "";
+  };
 
   // Track relations for post-processing
   const relations: {
@@ -119,10 +165,12 @@ export function parseSchemaFromCode(files: AppFile[]): SchemaTable[] {
         .map((line) => (line.trimStart().startsWith("//") ? "" : line))
         .join("\n");
 
-      // Look for columns in the sanitized table definition
-      const columnMatches = [
-        ...tableDefinitionWithoutLineComments.matchAll(columnRegex),
-      ];
+      // Look for columns only inside the first object literal (table columns),
+      // not in callback objects (e.g. pgPolicy { using, withCheck }).
+      const columnObjectBlock = extractFirstObjectBlock(
+        tableDefinitionWithoutLineComments,
+      );
+      const columnMatches = [...columnObjectBlock.matchAll(columnRegex)];
       const indexedColumnNames = new Set<string>();
 
       // Detect indexes declared in callback style:
