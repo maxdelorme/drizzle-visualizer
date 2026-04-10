@@ -490,8 +490,16 @@ const CanvasView = forwardRef<CanvasViewHandle, CanvasViewProps>(function Canvas
           stroke={getTableColor(relation.from.table)}
           strokeWidth="1.8"
           fill="none"
-          markerEnd="url(#arrowhead)"
-        />
+          strokeDasharray="8 6"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            values="100;0"
+            dur="3s"
+            calcMode="linear"
+            repeatCount="indefinite"
+          />
+        </path>
       );
     });
   };
@@ -519,18 +527,6 @@ const CanvasView = forwardRef<CanvasViewHandle, CanvasViewProps>(function Canvas
           }}
         >
           <svg className="absolute top-0 left-0 w-[8000px] h-[8000px] pointer-events-none z-0 overflow-visible">
-            <defs>
-              <marker
-                id="arrowhead"
-                markerWidth="10"
-                markerHeight="7"
-                refX="9"
-                refY="3.5"
-                orient="auto"
-              >
-                <polygon points="0 0, 10 3.5, 0 7" fill="context-stroke" />
-              </marker>
-            </defs>
             {drawRelations()}
           </svg>
 
